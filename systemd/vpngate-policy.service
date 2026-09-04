@@ -1,0 +1,14 @@
+[Unit]
+Description=VPN gateway policy routing
+Requires=awg-quick@awg0.service
+After=network-online.target awg-quick@awg0.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/vpngate-policy up
+ExecStop=/usr/local/libexec/vpngate-policy down
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
