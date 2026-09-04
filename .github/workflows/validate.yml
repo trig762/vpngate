@@ -1,0 +1,31 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  shell:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Bash syntax
+        run: bash -n install.sh scripts/*
+      - name: Run ShellCheck
+        run: shellcheck -x install.sh scripts/*
+      - name: Check required configuration invariants
+        run: |
+          grep -Fq 'Table = off' install.sh
+          grep -Fq 'readonly MARK="0x64"' install.sh
+          grep -Fq 'readonly ROUTE_TABLE="100"' install.sh
+          grep -Fq 'add element inet vpngate vpn_static4' config/static/telegram.nft
+          grep -Fq 'add element inet vpngate vpn_static4' config/static/meta.nft
+      - name: Reject CRLF in Linux files
+        run: |
+          if grep -IUlr $'\r' -- install.sh scripts systemd config; then
+            echo 'CRLF line endings found' >&2
+            exit 1
+          fi
