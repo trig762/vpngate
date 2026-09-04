@@ -5,10 +5,12 @@ readonly APP_NAME="vpngate"
 readonly MARK="0x64"
 readonly ROUTE_TABLE="100"
 readonly RULE_PRIORITY="10000"
-readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+readonly SCRIPT_DIR
 readonly LOG_FILE="/var/log/${APP_NAME}-install.log"
 readonly BACKUP_ROOT="/var/backups/${APP_NAME}"
-readonly BACKUP_DIR="${BACKUP_ROOT}/$(date -u +%Y%m%dT%H%M%SZ)"
+BACKUP_DIR="${BACKUP_ROOT}/$(date -u +%Y%m%dT%H%M%SZ)"
+readonly BACKUP_DIR
 
 WG_IF="wg0"
 AWG_IF="awg0"
@@ -123,7 +125,9 @@ PY
   prompt WG_NETWORK "wg0 client network" "$detected_network"
   valid_network4 "$WG_NETWORK" || die "Invalid wg0 network: ${WG_NETWORK}"
   prompt WG_PORT "wg0 UDP listen port" "$WG_PORT"
-  valid_uint "$WG_PORT" && (( WG_PORT >= 1 && WG_PORT <= 65535 )) || die "Invalid wg0 port."
+  if ! valid_uint "$WG_PORT" || (( WG_PORT < 1 || WG_PORT > 65535 )); then
+    die "Invalid wg0 port."
+  fi
   WG_DNS=${WG_ADDRESS%/*}
 
   printf '\nAmneziaWG client parameters (exported client configuration):\n'
@@ -189,7 +193,9 @@ install_packages() {
   fi
   apt-get update
   apt-get install -y amneziawg
-  command -v awg >/dev/null && command -v awg-quick >/dev/null || die "AmneziaWG tools were not installed."
+  if ! command -v awg >/dev/null || ! command -v awg-quick >/dev/null; then
+    die "AmneziaWG tools were not installed."
+  fi
   modprobe amneziawg || die "The AmneziaWG kernel module could not be loaded. Check DKMS and kernel headers."
 }
 
