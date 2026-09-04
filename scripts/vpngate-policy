@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly SETTINGS=/etc/vpngate/settings
+[[ -r $SETTINGS ]] || { echo "Missing $SETTINGS" >&2; exit 1; }
+# shellcheck disable=SC1090
+. "$SETTINGS"
+
+up() {
+  ip -4 rule del priority "$RULE_PRIORITY" 2>/dev/null || true
+  ip -4 rule add priority "$RULE_PRIORITY" fwmark "${MARK}/0xffffffff" table "$ROUTE_TABLE"
+  ip -4 route replace default dev "$AWG_IF" table "$ROUTE_TABLE"
+  ip -4 route flush cache
+}
+
+down() {
+  ip -4 rule del priority "$RULE_PRIORITY" 2>/dev/null || true
+  ip -4 route flush table "$ROUTE_TABLE" 2>/dev/null || true
+  ip -4 route flush cache
+}
+
+case "${1:-}" in
+  up) up ;;
+  down) down ;;
+  *) echo "Usage: $0 {up|down}" >&2; exit 2 ;;
+esac
