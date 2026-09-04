@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -u
+
+failures=0
+pass() { printf '[OK]   %s\n' "$*"; }
+fail() { printf '[FAIL] %s\n' "$*"; failures=$((failures + 1)); }
+check() { local label="$1"; shift; if "$@" >/dev/null 2>&1; then pass "$label"; else fail "$label"; fi; }
+
+check "IPv4 forwarding enabled" test "$(sysctl -n net.ipv4.ip_forward 2>/dev/null)" = 1
+check "wg0 exists" ip link show wg0
+check "awg0 exists" ip link show awg0
+check "nftables ruleset is valid" nft --check --file /etc/nftables.conf
+check "vpngate table loaded" nft list table inet vpngate
+check "dnsmasq configuration valid" dnsmasq --test
+check "dnsmasq active" systemctl is-active --quiet dnsmasq
+check "fwmark rule installed" sh -c "ip -4 rule show | grep -q 'fwmark 0x64.*lookup 100'"
+check "table 100 default route installed" sh -c "ip -4 route show table 100 | grep -q '^default dev awg0'"
+check "AmneziaWG peer configured" sh -c "awg show awg0 peers | grep -q ."
+
+printf '\nWireGuard server:\n'
+wg show wg0 2>/dev/null || true
+printf '\nAmneziaWG client:\n'
+awg show awg0 2>/dev/null || true
+
+if (( failures > 0 )); then
+  printf '\n%d check(s) failed.\n' "$failures" >&2
+  exit 1
+fi
+printf '\nAll checks passed.\n'
