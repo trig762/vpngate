@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly SETTINGS=/etc/vpngate/settings
+[[ $EUID -eq 0 ]] || { echo "Run with sudo." >&2; exit 1; }
+[[ -r $SETTINGS ]] || { echo "Missing $SETTINGS" >&2; exit 1; }
+# shellcheck disable=SC1090
+. "$SETTINGS"
+
+read -r -p "Client name: " client_name
+[[ $client_name =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$ ]] || { echo "Use letters, digits, dot, underscore or dash." >&2; exit 1; }
+read -r -p "Client IPv4 address (for example 10.66.66.2): " client_ip
+python3 - "$client_ip" "$WG_NETWORK" <<'PY'
+import ipaddress, sys
+address = ipaddress.IPv4Address(sys.argv[1])
+network = ipaddress.IPv4Network(sys.argv[2])
+if address not in network or address in (network.network_address, network.broadcast_address):
+    raise SystemExit("Address is not a usable member of the wg0 network")
+PY
+
+client_file="/etc/vpngate/clients/${client_name}.conf"
+[[ ! -e $client_file ]] || { echo "Client already exists: $client_file" >&2; exit 1; }
+grep -Eq "^[[:space:]]*AllowedIPs[[:space:]]*=[[:space:]]*${client_ip//./\.}/32([[:space:]]|$)" /etc/wireguard/wg0.conf && \
+  { echo "That address is already assigned." >&2; exit 1; }
+read -r -p "Public endpoint clients use (host or IP): " public_host
+
+umask 077
+client_private=$(wg genkey)
+client_public=$(printf '%s' "$client_private" | wg pubkey)
+psk=$(wg genpsk)
+
+cat >>/etc/wireguard/wg0.conf <<EOF
+
+# client: ${client_name}
+[Peer]
+PublicKey = ${client_public}
+PresharedKey = ${psk}
+AllowedIPs = ${client_ip}/32
+EOF
+
+cat >"$client_file" <<EOF
+[Interface]
+PrivateKey = ${client_private}
+Address = ${client_ip}/32
+DNS = ${WG_DNS}
+
+[Peer]
+PublicKey = ${WG_PUBLIC_KEY}
+PresharedKey = ${psk}
+AllowedIPs = 0.0.0.0/0
+Endpoint = ${public_host}:${WG_PORT}
+PersistentKeepalive = 25
+EOF
+
+wg syncconf wg0 <(wg-quick strip wg0)
+printf '\nCreated %s\n\n' "$client_file"
+qrencode -t ansiutf8 <"$client_file" || true
