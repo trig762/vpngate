@@ -21,6 +21,10 @@ jobs:
           grep -Fq 'Table = off' install.sh
           grep -Fq 'readonly MARK="0x64"' install.sh
           grep -Fq 'readonly ROUTE_TABLE="100"' install.sh
+          grep -Fq 'PostUp = /usr/local/libexec/vpngate-policy awg-up' install.sh
+          grep -Fq 'unreachable default metric 42760' scripts/vpngate-policy
+          grep -Fq 'counter redirect to :53' install.sh
+          grep -Fq 'oifname "${AWG_IF}" meta mark ${MARK} counter masquerade' install.sh
           grep -Fq 'add element inet vpngate vpn_static4' config/static/telegram.nft
           grep -Fq 'add element inet vpngate vpn_static4' config/static/meta.nft
       - name: Reject CRLF in Linux files

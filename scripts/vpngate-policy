@@ -6,21 +6,31 @@ readonly SETTINGS=/etc/vpngate/settings
 # shellcheck disable=SC1090
 . "$SETTINGS"
 
-up() {
+start() {
   ip -4 rule del priority "$RULE_PRIORITY" 2>/dev/null || true
-  ip -4 rule add priority "$RULE_PRIORITY" fwmark "${MARK}/0xffffffff" table "$ROUTE_TABLE"
-  ip -4 route replace default dev "$AWG_IF" table "$ROUTE_TABLE"
-  ip -4 route flush cache
+  ip -4 rule add priority "$RULE_PRIORITY" fwmark "${MARK}/0xff" table "$ROUTE_TABLE"
+  ip -4 route flush table "$ROUTE_TABLE" 2>/dev/null || true
+  ip -4 route add unreachable default metric 42760 table "$ROUTE_TABLE"
+}
+
+awg_up() {
+  ip -4 route del default dev "$AWG_IF" table "$ROUTE_TABLE" 2>/dev/null || true
+  ip -4 route add default dev "$AWG_IF" metric 10 table "$ROUTE_TABLE"
+}
+
+awg_down() {
+  ip -4 route del default dev "$AWG_IF" table "$ROUTE_TABLE" 2>/dev/null || true
 }
 
 down() {
   ip -4 rule del priority "$RULE_PRIORITY" 2>/dev/null || true
   ip -4 route flush table "$ROUTE_TABLE" 2>/dev/null || true
-  ip -4 route flush cache
 }
 
 case "${1:-}" in
-  up) up ;;
+  start) start ;;
+  awg-up) awg_up ;;
+  awg-down) awg_down ;;
   down) down ;;
-  *) echo "Usage: $0 {up|down}" >&2; exit 2 ;;
+  *) echo "Usage: $0 {start|awg-up|awg-down|down}" >&2; exit 2 ;;
 esac

@@ -13,8 +13,12 @@ check "nftables ruleset is valid" nft --check --file /etc/nftables.conf
 check "vpngate table loaded" nft list table inet vpngate
 check "dnsmasq configuration valid" dnsmasq --test
 check "dnsmasq active" systemctl is-active --quiet dnsmasq
+check "system resolver active" systemctl is-active --quiet systemd-resolved
 check "fwmark rule installed" sh -c "ip -4 rule show | grep -q 'fwmark 0x64.*lookup 100'"
 check "table 100 default route installed" sh -c "ip -4 route show table 100 | grep -q '^default dev awg0'"
+check "table 100 fail-closed route installed" sh -c "ip -4 route show table 100 | grep -q '^unreachable default'"
+check "main table remains on WAN" sh -c "! ip -4 route show table main | grep -q '^default dev awg0'"
+check "marked route uses awg0" sh -c "ip -4 route get 149.154.167.99 mark 0x64 | grep -q 'dev awg0'"
 check "AmneziaWG peer configured" sh -c "awg show awg0 peers | grep -q ."
 
 printf '\nWireGuard server:\n'

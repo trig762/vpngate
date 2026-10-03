@@ -1,12 +1,12 @@
 [Unit]
 Description=VPN gateway policy routing
-Requires=awg-quick@awg0.service
-After=network-online.target awg-quick@awg0.service
-Wants=network-online.target
+After=network-pre.target nftables.service
+Before=awg-quick@awg0.service
+Wants=nftables.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/libexec/vpngate-policy up
+ExecStart=/usr/local/libexec/vpngate-policy start
 ExecStop=/usr/local/libexec/vpngate-policy down
 RemainAfterExit=yes
 

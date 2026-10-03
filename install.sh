@@ -4,7 +4,7 @@ set -Eeuo pipefail
 readonly APP_NAME="vpngate"
 readonly MARK="0x64"
 readonly ROUTE_TABLE="100"
-readonly RULE_PRIORITY="10000"
+readonly RULE_PRIORITY="100"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly SCRIPT_DIR
 readonly LOG_FILE="/var/log/${APP_NAME}-install.log"
@@ -28,10 +28,17 @@ AWG_JMIN=""
 AWG_JMAX=""
 AWG_S1=""
 AWG_S2=""
+AWG_S3=""
+AWG_S4=""
 AWG_H1=""
 AWG_H2=""
 AWG_H3=""
 AWG_H4=""
+AWG_I1=""
+AWG_I2=""
+AWG_I3=""
+AWG_I4=""
+AWG_I5=""
 AWG_MTU="1420"
 WAN_IF=""
 
@@ -84,6 +91,12 @@ prompt_secret() {
   printf -v "$variable" '%s' "$value"
 }
 
+prompt_optional() {
+  local variable="$1" label="$2" value=""
+  read -r -p "${label} (leave empty if unused): " value
+  printf -v "$variable" '%s' "$value"
+}
+
 valid_uint() { [[ $1 =~ ^[0-9]+$ ]]; }
 valid_cidr4() {
   python3 - "$1" <<'PY'
@@ -110,6 +123,15 @@ valid_endpoint() {
   (( 10#$port >= 1 && 10#$port <= 65535 ))
 }
 valid_key() { [[ $1 =~ ^[A-Za-z0-9+/]{43}=$ ]]; }
+valid_h_parameter() {
+  local value="$1" first second
+  [[ $value =~ ^([0-9]+)(-([0-9]+))?$ ]] || return 1
+  first=${BASH_REMATCH[1]}
+  second=${BASH_REMATCH[3]:-${BASH_REMATCH[1]}}
+  (( 10#$first >= 1 && 10#$first <= 2147483647 &&
+     10#$second >= 1 && 10#$second <= 2147483647 &&
+     10#$first <= 10#$second ))
+}
 
 ask_parameters() {
   local detected_wan detected_network
@@ -146,15 +168,24 @@ PY
   prompt AWG_JMAX "Jmax" "80"
   prompt AWG_S1 "S1" "40"
   prompt AWG_S2 "S2" "60"
+  prompt_optional AWG_S3 "S3"
+  prompt_optional AWG_S4 "S4"
   prompt AWG_H1 "H1"
   prompt AWG_H2 "H2"
   prompt AWG_H3 "H3"
   prompt AWG_H4 "H4"
+  prompt_optional AWG_I1 "I1"
+  prompt_optional AWG_I2 "I2"
+  prompt_optional AWG_I3 "I3"
+  prompt_optional AWG_I4 "I4"
+  prompt_optional AWG_I5 "I5"
   prompt AWG_MTU "awg0 MTU" "$AWG_MTU"
 
-  for value in "$AWG_JC" "$AWG_JMIN" "$AWG_JMAX" "$AWG_S1" "$AWG_S2" \
-               "$AWG_H1" "$AWG_H2" "$AWG_H3" "$AWG_H4" "$AWG_MTU"; do
+  for value in "$AWG_JC" "$AWG_JMIN" "$AWG_JMAX" "$AWG_S1" "$AWG_S2" "$AWG_MTU"; do
     valid_uint "$value" || die "AmneziaWG numeric parameters must be non-negative integers."
+  done
+  for value in "$AWG_S3" "$AWG_S4"; do
+    [[ -z $value ]] || valid_uint "$value" || die "S3/S4 must be non-negative integers when provided."
   done
   (( AWG_JC >= 1 && AWG_JC <= 128 )) || die "Jc must be between 1 and 128."
   (( AWG_JMIN < AWG_JMAX && AWG_JMAX <= 1280 )) || die "Require Jmin < Jmax <= 1280."
@@ -163,7 +194,7 @@ PY
      $AWG_H2 != "$AWG_H3" && $AWG_H2 != "$AWG_H4" && $AWG_H3 != "$AWG_H4" ]] || \
     die "H1, H2, H3 and H4 must be unique."
   for value in "$AWG_H1" "$AWG_H2" "$AWG_H3" "$AWG_H4"; do
-    (( value >= 1 && value <= 2147483647 )) || die "H1-H4 must be between 1 and 2147483647."
+    valid_h_parameter "$value" || die "H1-H4 must be integers or ascending ranges within 1..2147483647."
   done
 
   printf '\nConfiguration summary:\n'
@@ -200,10 +231,12 @@ install_packages() {
 }
 
 write_configs() {
-  local wg_private wg_public existing_peers=""
+  local wg_private wg_public existing_peers="" name value_variable
   log INFO "Creating configuration files."
   install -d -m 0700 /etc/wireguard /etc/amnezia/amneziawg /etc/vpngate/clients
   install -d -m 0755 /etc/nftables.d/vpngate-static /etc/dnsmasq.d /etc/sysctl.d /usr/local/libexec
+  install -d -m 0755 /etc/systemd/resolved.conf.d /etc/systemd/system/dnsmasq.service.d
+  install -d -m 0755 /etc/systemd/system/awg-quick@awg0.service.d
   install -d -m 0700 "$BACKUP_DIR"
   : >"${BACKUP_DIR}/MANIFEST"
 
@@ -237,15 +270,27 @@ Address = ${AWG_ADDRESS}
 PrivateKey = ${AWG_PRIVATE_KEY}
 Table = off
 MTU = ${AWG_MTU}
+PostUp = /usr/local/libexec/vpngate-policy awg-up
+PostDown = /usr/local/libexec/vpngate-policy awg-down
 Jc = ${AWG_JC}
 Jmin = ${AWG_JMIN}
 Jmax = ${AWG_JMAX}
 S1 = ${AWG_S1}
 S2 = ${AWG_S2}
+EOF
+  [[ -z $AWG_S3 ]] || printf 'S3 = %s\n' "$AWG_S3" >>/etc/amnezia/amneziawg/awg0.conf
+  [[ -z $AWG_S4 ]] || printf 'S4 = %s\n' "$AWG_S4" >>/etc/amnezia/amneziawg/awg0.conf
+  cat >>/etc/amnezia/amneziawg/awg0.conf <<EOF
 H1 = ${AWG_H1}
 H2 = ${AWG_H2}
 H3 = ${AWG_H3}
 H4 = ${AWG_H4}
+EOF
+  for name in I1 I2 I3 I4 I5; do
+    value_variable="AWG_${name}"
+    [[ -z ${!value_variable} ]] || printf '%s = %s\n' "$name" "${!value_variable}" >>/etc/amnezia/amneziawg/awg0.conf
+  done
+  cat >>/etc/amnezia/amneziawg/awg0.conf <<EOF
 
 [Peer]
 PublicKey = ${AWG_PEER_PUBLIC_KEY}
@@ -274,19 +319,34 @@ table inet vpngate {
 
     chain mark_selected {
         type filter hook prerouting priority mangle; policy accept;
-        iifname "${WG_IF}" ip daddr @vpn_domains4 meta mark set ${MARK}
-        iifname "${WG_IF}" ip daddr @vpn_static4 meta mark set ${MARK}
+        iifname "${WG_IF}" ip saddr ${WG_NETWORK} ip daddr @vpn_domains4 counter meta mark set ${MARK} ct mark set meta mark
+        iifname "${WG_IF}" ip saddr ${WG_NETWORK} ip daddr @vpn_static4 counter meta mark set ${MARK} ct mark set meta mark
+    }
+
+    chain mark_local {
+        type route hook output priority mangle; policy accept;
+        ip daddr @vpn_domains4 counter meta mark set ${MARK} ct mark set meta mark
+        ip daddr @vpn_static4 counter meta mark set ${MARK} ct mark set meta mark
     }
 
     chain forward_gateway {
         type filter hook forward priority filter; policy accept;
-        ct state established,related accept
-        iifname "${WG_IF}" oifname { "${WAN_IF}", "${AWG_IF}" } accept
+        ct state established,related counter accept
+        iifname "${WG_IF}" oifname "${WAN_IF}" counter accept
+        iifname "${WG_IF}" oifname "${AWG_IF}" meta mark ${MARK} counter accept
+    }
+
+    chain redirect_dns {
+        type nat hook prerouting priority dstnat; policy accept;
+        iifname "${WG_IF}" ip saddr ${WG_NETWORK} udp dport 53 counter redirect to :53
+        iifname "${WG_IF}" ip saddr ${WG_NETWORK} tcp dport 53 counter redirect to :53
     }
 
     chain gateway_nat {
         type nat hook postrouting priority srcnat; policy accept;
-        ip saddr ${WG_NETWORK} oifname { "${WAN_IF}", "${AWG_IF}" } masquerade
+        ip saddr ${WG_NETWORK} oifname "${WAN_IF}" counter masquerade
+        ip saddr ${WG_NETWORK} oifname "${AWG_IF}" counter masquerade
+        oifname "${AWG_IF}" meta mark ${MARK} counter masquerade
     }
 }
 
@@ -306,15 +366,39 @@ EOF
   backup_file /etc/dnsmasq.d/vpngate.conf
   cat >/etc/dnsmasq.d/vpngate.conf <<EOF
 # Managed by vpngate. Add one nftset line for each routed domain.
+port=53
+no-dhcp-interface=*
 interface=${WG_IF}
 listen-address=${WG_DNS}
+listen-address=127.0.0.1
 bind-dynamic
+no-resolv
 domain-needed
 bogus-priv
+stop-dns-rebind
+rebind-localhost-ok
 server=1.1.1.1
+server=1.0.0.1
 server=9.9.9.9
+server=149.112.112.112
 nftset=/telegram.org/t.me/telegra.ph/4#inet#vpngate#vpn_domains4
 nftset=/facebook.com/fbcdn.net/instagram.com/cdninstagram.com/whatsapp.com/whatsapp.net/4#inet#vpngate#vpn_domains4
+nftset=/chatgpt.com/openai.com/oaistatic.com/oaiusercontent.com/4#inet#vpngate#vpn_domains4
+EOF
+
+  backup_file /etc/systemd/system/dnsmasq.service.d/vpngate.conf
+  cat >/etc/systemd/system/dnsmasq.service.d/vpngate.conf <<'EOF'
+[Unit]
+After=nftables.service
+Requires=nftables.service
+EOF
+
+  backup_file /etc/systemd/resolved.conf.d/vpngate.conf
+  cat >/etc/systemd/resolved.conf.d/vpngate.conf <<'EOF'
+[Resolve]
+DNS=127.0.0.1
+FallbackDNS=
+Domains=~.
 EOF
 
   backup_file /etc/sysctl.d/99-vpngate.conf
@@ -331,6 +415,12 @@ EOF
 
   backup_file /etc/systemd/system/vpngate-policy.service
   install -m 0644 "$SCRIPT_DIR/systemd/vpngate-policy.service" /etc/systemd/system/vpngate-policy.service
+  backup_file /etc/systemd/system/awg-quick@awg0.service.d/vpngate-policy.conf
+  cat >/etc/systemd/system/awg-quick@awg0.service.d/vpngate-policy.conf <<'EOF'
+[Unit]
+After=nftables.service vpngate-policy.service
+Requires=nftables.service vpngate-policy.service
+EOF
 
   backup_file /etc/vpngate/settings
   cat >/etc/vpngate/settings <<EOF
@@ -355,7 +445,7 @@ validate_configs() {
   wg-quick strip wg0 >/dev/null
   nft --check --file /etc/nftables.conf
   dnsmasq --test
-  systemd-analyze verify /etc/systemd/system/vpngate-policy.service
+  systemd-analyze verify /etc/systemd/system/vpngate-policy.service dnsmasq.service awg-quick@awg0.service
 }
 
 activate() {
@@ -365,9 +455,10 @@ activate() {
   systemctl enable nftables dnsmasq wg-quick@wg0 awg-quick@awg0 vpngate-policy.service
   systemctl restart nftables
   systemctl restart wg-quick@wg0
-  systemctl restart awg-quick@awg0
   systemctl restart vpngate-policy.service
+  systemctl restart awg-quick@awg0
   systemctl restart dnsmasq
+  systemctl restart systemd-resolved
   /usr/local/libexec/vpngate-check
 }
 
