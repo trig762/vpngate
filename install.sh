@@ -385,6 +385,8 @@ server=149.112.112.112
 nftset=/telegram.org/t.me/telegra.ph/4#inet#vpngate#vpn_domains4
 nftset=/facebook.com/fbcdn.net/instagram.com/cdninstagram.com/whatsapp.com/whatsapp.net/4#inet#vpngate#vpn_domains4
 nftset=/chatgpt.com/openai.com/oaistatic.com/oaiusercontent.com/4#inet#vpngate#vpn_domains4
+nftset=/claude.ai/anthropic.com/4#inet#vpngate#vpn_domains4
+nftset=/gemini.google.com/aistudio.google.com/ai.google.dev/generativelanguage.googleapis.com/4#inet#vpngate#vpn_domains4
 EOF
 
   backup_file /etc/systemd/system/dnsmasq.service.d/vpngate.conf
