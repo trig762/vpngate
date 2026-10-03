@@ -231,7 +231,7 @@ install_packages() {
 }
 
 write_configs() {
-  local wg_private wg_public existing_peers="" name value_variable
+  local wg_private wg_public existing_peers=""
   log INFO "Creating configuration files."
   install -d -m 0700 /etc/wireguard /etc/amnezia/amneziawg /etc/vpngate/clients
   install -d -m 0755 /etc/nftables.d/vpngate-static /etc/dnsmasq.d /etc/sysctl.d /usr/local/libexec
@@ -286,10 +286,11 @@ H2 = ${AWG_H2}
 H3 = ${AWG_H3}
 H4 = ${AWG_H4}
 EOF
-  for name in I1 I2 I3 I4 I5; do
-    value_variable="AWG_${name}"
-    [[ -z ${!value_variable} ]] || printf '%s = %s\n' "$name" "${!value_variable}" >>/etc/amnezia/amneziawg/awg0.conf
-  done
+  [[ -z $AWG_I1 ]] || printf 'I1 = %s\n' "$AWG_I1" >>/etc/amnezia/amneziawg/awg0.conf
+  [[ -z $AWG_I2 ]] || printf 'I2 = %s\n' "$AWG_I2" >>/etc/amnezia/amneziawg/awg0.conf
+  [[ -z $AWG_I3 ]] || printf 'I3 = %s\n' "$AWG_I3" >>/etc/amnezia/amneziawg/awg0.conf
+  [[ -z $AWG_I4 ]] || printf 'I4 = %s\n' "$AWG_I4" >>/etc/amnezia/amneziawg/awg0.conf
+  [[ -z $AWG_I5 ]] || printf 'I5 = %s\n' "$AWG_I5" >>/etc/amnezia/amneziawg/awg0.conf
   cat >>/etc/amnezia/amneziawg/awg0.conf <<EOF
 
 [Peer]
