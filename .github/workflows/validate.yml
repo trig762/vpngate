@@ -24,11 +24,11 @@ jobs:
           sudo nft --check --file /tmp/vpngate.nft
       - name: Test public endpoint validation
         run: |
-          test "$(scripts/vpngate-add-client --validate-public-host vpn.example.com)" = vpn.example.com
-          test "$(scripts/vpngate-add-client --validate-public-host 203.0.113.7)" = 203.0.113.7
-          test "$(scripts/vpngate-add-client --validate-public-host 2001:db8::7)" = '[2001:db8::7]'
-          ! scripts/vpngate-add-client --validate-public-host 'bad host'
-          ! scripts/vpngate-add-client --validate-public-host 999.1.1.1
+          test "$(bash scripts/vpngate-add-client --validate-public-host vpn.example.com)" = vpn.example.com
+          test "$(bash scripts/vpngate-add-client --validate-public-host 203.0.113.7)" = 203.0.113.7
+          test "$(bash scripts/vpngate-add-client --validate-public-host 2001:db8::7)" = '[2001:db8::7]'
+          ! bash scripts/vpngate-add-client --validate-public-host 'bad host'
+          ! bash scripts/vpngate-add-client --validate-public-host 999.1.1.1
       - name: Check required configuration invariants
         run: |
           grep -Fq 'Table = off' install.sh
