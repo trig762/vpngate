@@ -16,6 +16,19 @@ jobs:
         run: bash -n install.sh scripts/*
       - name: Run ShellCheck
         run: shellcheck -x install.sh scripts/*
+      - name: Check generated nftables syntax
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nftables
+          python3 tests/render-nft-config.py >/tmp/vpngate.nft
+          sudo nft --check --file /tmp/vpngate.nft
+      - name: Test public endpoint validation
+        run: |
+          test "$(bash scripts/vpngate-add-client --validate-public-host vpn.example.com)" = vpn.example.com
+          test "$(bash scripts/vpngate-add-client --validate-public-host 203.0.113.7)" = 203.0.113.7
+          test "$(bash scripts/vpngate-add-client --validate-public-host 2001:db8::7)" = '[2001:db8::7]'
+          ! bash scripts/vpngate-add-client --validate-public-host 'bad host'
+          ! bash scripts/vpngate-add-client --validate-public-host 999.1.1.1
       - name: Check required configuration invariants
         run: |
           grep -Fq 'Table = off' install.sh
@@ -23,12 +36,20 @@ jobs:
           grep -Fq 'readonly ROUTE_TABLE="100"' install.sh
           grep -Fq 'PostUp = /usr/local/libexec/vpngate-policy awg-up' install.sh
           grep -Fq 'unreachable default metric 42760' scripts/vpngate-policy
-          grep -Fq 'counter redirect to :53' install.sh
+          grep -Fq 'ct mark and 0xff == ${MARK} counter name restored_forward_mark meta mark set ct mark' install.sh
+          grep -Fq 'ct mark and 0xff == ${MARK} counter name restored_local_mark meta mark set ct mark' install.sh
+          grep -Fq 'counter name redirected_dns_udp redirect to :53' install.sh
+          grep -Fq 'counter name redirected_dns_tcp redirect to :53' install.sh
           grep -Fq 'oifname "${AWG_IF}" meta mark ${MARK} counter masquerade' install.sh
           grep -Fq 'nftset=/claude.ai/anthropic.com/' install.sh
           grep -Fq 'nftset=/gemini.google.com/aistudio.google.com/ai.google.dev/generativelanguage.googleapis.com/' install.sh
           grep -Fq 'add element inet vpngate vpn_static4' config/static/telegram.nft
           grep -Fq 'add element inet vpngate vpn_static4' config/static/meta.nft
+          grep -Fq 'latest-handshakes' scripts/vpngate-check
+          grep -Fq 'vpn_domains4' scripts/vpngate-check
+          grep -Fq 'flock -n 9' scripts/vpngate-add-client
+      - name: Check patch whitespace
+        run: git show --check --oneline --no-renames HEAD
       - name: Reject CRLF in Linux files
         run: |
           if grep -IUlr $'\r' -- install.sh scripts systemd config; then
