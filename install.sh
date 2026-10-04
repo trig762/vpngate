@@ -307,6 +307,15 @@ EOF
   backup_file /etc/nftables.d/vpngate.nft
   cat >/etc/nftables.d/vpngate.nft <<EOF
 table inet vpngate {
+    counter restored_forward_mark {}
+    counter restored_local_mark {}
+    counter marked_domain_forward {}
+    counter marked_static_forward {}
+    counter marked_domain_local {}
+    counter marked_static_local {}
+    counter redirected_dns_udp {}
+    counter redirected_dns_tcp {}
+
     set vpn_domains4 {
         type ipv4_addr
         flags timeout
@@ -320,14 +329,16 @@ table inet vpngate {
 
     chain mark_selected {
         type filter hook prerouting priority mangle; policy accept;
-        iifname "${WG_IF}" ip saddr ${WG_NETWORK} ip daddr @vpn_domains4 counter meta mark set ${MARK} ct mark set meta mark
-        iifname "${WG_IF}" ip saddr ${WG_NETWORK} ip daddr @vpn_static4 counter meta mark set ${MARK} ct mark set meta mark
+        iifname "${WG_IF}" ip saddr ${WG_NETWORK} ct mark and 0xff == ${MARK} counter name restored_forward_mark meta mark set ct mark
+        iifname "${WG_IF}" ip saddr ${WG_NETWORK} ip daddr @vpn_domains4 counter name marked_domain_forward meta mark set ${MARK} ct mark set meta mark
+        iifname "${WG_IF}" ip saddr ${WG_NETWORK} ip daddr @vpn_static4 counter name marked_static_forward meta mark set ${MARK} ct mark set meta mark
     }
 
     chain mark_local {
         type route hook output priority mangle; policy accept;
-        ip daddr @vpn_domains4 counter meta mark set ${MARK} ct mark set meta mark
-        ip daddr @vpn_static4 counter meta mark set ${MARK} ct mark set meta mark
+        ct mark and 0xff == ${MARK} counter name restored_local_mark meta mark set ct mark
+        ip daddr @vpn_domains4 counter name marked_domain_local meta mark set ${MARK} ct mark set meta mark
+        ip daddr @vpn_static4 counter name marked_static_local meta mark set ${MARK} ct mark set meta mark
     }
 
     chain forward_gateway {
@@ -339,8 +350,8 @@ table inet vpngate {
 
     chain redirect_dns {
         type nat hook prerouting priority dstnat; policy accept;
-        iifname "${WG_IF}" ip saddr ${WG_NETWORK} udp dport 53 counter redirect to :53
-        iifname "${WG_IF}" ip saddr ${WG_NETWORK} tcp dport 53 counter redirect to :53
+        iifname "${WG_IF}" ip saddr ${WG_NETWORK} udp dport 53 counter name redirected_dns_udp redirect to :53
+        iifname "${WG_IF}" ip saddr ${WG_NETWORK} tcp dport 53 counter name redirected_dns_tcp redirect to :53
     }
 
     chain gateway_nat {
